@@ -17,7 +17,16 @@
 #include <array>
 #include <assert.h>
 
-#define SIZE 1<<24 // same as 2^24
+/* 
+ * From the size alterations below we can see that for the GPU to perform better than
+ * the GPU the size must be of >= 2^18.
+ */
+
+#define SIZE 1<<24	// same as 2^24 = 16,777,216			GPU faster
+//#define SIZE 1<<10	// same as 2^10 = 1024					CPU faster
+//#define SIZE 1<<15	// same as 2^15 = 32,768				CPU faster
+//#define SIZE 1<<20	// same as 2^20 = 1,048,576				GPU faster
+//#define SIZE 1<<17	// same as 2^17 = 131,072				ROUGHLY THE SAME
 
 // Need to access the concurrency libraries 
 using namespace concurrency;
@@ -94,7 +103,7 @@ void vector_add(const int size, const std::vector<double>& v1, const std::vector
 	the_serial_clock::time_point end = the_serial_clock::now();
 	//Compute the difference between the two times in milliseconds
 	auto time_taken = duration_cast<milliseconds>(end - start).count();
-	cout << "Adding the vectors serially usin the CPU " << time_taken << " ms." << endl;
+	cout << "Adding the vectors serially using the CPU took: " << time_taken << " ms." << endl;
 } // vector_add
 
   // Accelerated  element-wise addition of arbitrary length vectors using C++ 11 container vector class 
@@ -113,12 +122,11 @@ void vector_add_amp(const int size, const std::vector<double>& v1, const std::ve
 	{
 		concurrency::parallel_for_each(av3.extent, [=](concurrency::index<1> idx)  restrict(amp)
 			{
-				av3[idx] = av1[idx] + av2[idx];
-				
+				av3[idx] = av1[idx] + av2[idx];				
 			});
 		av3.synchronize();
 	}
-	catch (const Concurrency::runtime_exception & ex)
+	catch (const concurrency::runtime_exception & ex)
 	{
 		MessageBoxA(NULL, ex.what(), "Error", MB_ICONERROR);
 	}
@@ -126,7 +134,7 @@ void vector_add_amp(const int size, const std::vector<double>& v1, const std::ve
 	the_amp_clock::time_point end = the_amp_clock::now();
 	// Compute the difference between the two times in milliseconds
 	auto time_taken = duration_cast<milliseconds>(end - start).count();
-	cout << "Adding the vectors using AMP (data transfer and compute) takes " << time_taken << " ms." << endl;
+	cout << "Adding the vectors using AMP (data transfer and compute) took: " << time_taken << " ms." << endl;
 } // vector_add_amp
 
  
@@ -146,7 +154,3 @@ int main(int argc, char* argv[])
 
 	return 0;
 } // main
-
-
-
-
