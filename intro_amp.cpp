@@ -88,8 +88,7 @@ void query_AMP_support()
 	}
 } // query_AMP_support
 
- // Unaccelerated CPU element-wise addition of arbitrary length vectors using C++ 11 container vector class
-
+// Unaccelerated CPU element-wise addition of arbitrary length vectors using C++ 11 container vector class
 void vector_add(const int size, const std::vector<double>& v1, const std::vector<double>& v2, std::vector<double>& v3)
 {
 	//start clock for serial version
@@ -106,7 +105,7 @@ void vector_add(const int size, const std::vector<double>& v1, const std::vector
 	cout << "Adding the vectors serially using the CPU took: " << time_taken << " ms." << endl;
 } // vector_add
 
-  // Accelerated  element-wise addition of arbitrary length vectors using C++ 11 container vector class 
+// Accelerated  element-wise addition of arbitrary length vectors using C++ 11 container vector class
 void vector_add_amp(const int size, const std::vector<double>& v1, const std::vector<double>& v2, std::vector<double>& v3)
 {
 	concurrency::array_view<const double> av1(size, v1);
@@ -137,20 +136,87 @@ void vector_add_amp(const int size, const std::vector<double>& v1, const std::ve
 	cout << "Adding the vectors using AMP (data transfer and compute) took: " << time_taken << " ms." << endl;
 } // vector_add_amp
 
- 
+
+template <typename T>
+void array_add(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& arr2, std::array<T, SIZE>& arr3)
+{
+	//start clock for serial version
+	the_serial_clock::time_point start = the_serial_clock::now();
+	// loop over and add vector elements
+	for (int i = 0; i < arr3.size(); i++)
+	{
+		arr3[i] = arr2[i] + arr1[i];
+
+	}
+	the_serial_clock::time_point end = the_serial_clock::now();
+	//Compute the difference between the two times in milliseconds
+	auto time_taken = duration_cast<milliseconds>(end - start).count();
+	cout << "Adding the vectors serially using the CPU took: " << time_taken << " ms." << endl;
+} // vector_add
+
+ // Accelerated  element-wise addition of arbitrary length vectors using C++ 11 container vector class
+template <typename T>
+void array_add_amp(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& arr2, std::array<T, SIZE>& arr3)
+{
+	concurrency::array_view<const T> av1(arr1.size(), arr1);
+	concurrency::array_view<const T> av2(arr2.size(), arr2);
+	extent<1> e(SIZE);
+	concurrency::array_view<T> av3(e, arr3);
+	av3.discard_data();
+	// start clock for GPU version after array allocation
+	the_amp_clock::time_point start = the_amp_clock::now();
+	// It is wise to use exception handling here - AMP can fail for many reasons
+	// and it useful to know why (e.g. using double precision when there is limited or no support)
+	try
+	{
+		concurrency::parallel_for_each(av3.extent, [=](concurrency::index<1> idx)  restrict(amp)
+			{
+				av3[idx] = av1[idx] + av2[idx];
+			});
+		av3.synchronize();
+	}
+	catch (const concurrency::runtime_exception& ex)
+	{
+		MessageBoxA(NULL, ex.what(), "Error", MB_ICONERROR);
+	}
+	// Stop timing
+	the_amp_clock::time_point end = the_amp_clock::now();
+	// Compute the difference between the two times in milliseconds
+	auto time_taken = duration_cast<milliseconds>(end - start).count();
+	cout << "Adding the vectors using AMP (data transfer and compute) took: " << time_taken << " ms." << endl;
+} // vector_add_amp
+
+
+
 int main(int argc, char* argv[])
 {
 	// Check AMP support
 	query_AMP_support();
 
 	//fill the arrays - try ints versus floats & double -- change via templating
-	std::vector<double> v1(SIZE, 1.0);
+	/*std::vector<double> v1(SIZE, 1.0);
 	std::vector<double> v2(SIZE, 2.0);
-	std::vector<double> v3(SIZE, 0.0);
+	std::vector<double> v3(SIZE, 0.0);*/
+
 
 	//compare a serial and parallel version of vector addtion
-	vector_add_amp(SIZE, v1, v2, v3);
-	vector_add(SIZE, v1, v2, v3);
+	/*vector_add_amp(SIZE, v1, v2, v3);
+	vector_add(SIZE, v1, v2, v3);*/
+
+	static const std::array<double, SIZE> arr1 = { 1 };
+	static const std::array<double, SIZE> arr2 = { 2 };
+	static std::array<double, SIZE>  arr3 = { 0 };
+
+	array_add(arr1, arr2, arr3);
+	array_add_amp(arr1, arr2, arr3);
+
+	// THIS CODE IS DEADLY, EVEN UNCOMMENTING IT WILL SLOW DOWN PERFORMANCE OF COMPUTER.
+	/*const std::array<int, SIZE>* arr1 = new std::array<int, SIZE> { 1 };
+	const std::array<int, SIZE>* arr2 = new std::array<int, SIZE> { 2 };
+	std::array<int, SIZE>*  arr3 = new std::array<int, SIZE> { 0 };
+
+	array_add(&arr1, &arr2, &arr3);
+	array_add_amp(&arr1, &arr2, &arr3);*/
 
 	return 0;
 } // main
