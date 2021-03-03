@@ -16,17 +16,29 @@
 #include <string>
 #include <array>
 #include <assert.h>
+#include <fstream>
 
 /* 
  * From the size alterations below we can see that for the GPU to perform better than
  * the GPU the size must be of >= 2^18.
  */
 
+//#define SIZE 1<<25		// same as 2^25 = 33,554,432			GIVES ME THE ERROR OF DOOM!
 #define SIZE 1<<24	// same as 2^24 = 16,777,216			GPU faster
-//#define SIZE 1<<10	// same as 2^10 = 1024					CPU faster
-//#define SIZE 1<<15	// same as 2^15 = 32,768				CPU faster
 //#define SIZE 1<<20	// same as 2^20 = 1,048,576				GPU faster
 //#define SIZE 1<<17	// same as 2^17 = 131,072				ROUGHLY THE SAME
+//#define SIZE 1<<15	// same as 2^15 = 32,768				CPU faster
+//#define SIZE 1<<10	// same as 2^10 = 1024					CPU faster
+
+
+////fill the arrays - try ints versus floats & double -- change via templating
+std::vector<double> v1(SIZE, 1.0);
+std::vector<double> v2(SIZE, 2.0);
+std::vector<double> v3(SIZE, 0.0);
+
+static const std::array<double, SIZE> arr1 = { 1 };
+static const std::array<double, SIZE> arr2 = { 2 };
+static std::array<double, SIZE>  arr3 = { 0 };
 
 // Need to access the concurrency libraries 
 using namespace concurrency;
@@ -40,6 +52,8 @@ using std::endl;
 // Define the alias "the_clock" for the clock type we're going to use.
 typedef std::chrono::steady_clock the_serial_clock;
 typedef std::chrono::steady_clock the_amp_clock;
+
+std::ofstream timings ("timings.csv");
 
 void report_accelerator(const accelerator a)
 {
@@ -89,7 +103,7 @@ void query_AMP_support()
 } // query_AMP_support
 
 // Unaccelerated CPU element-wise addition of arbitrary length vectors using C++ 11 container vector class
-void vector_add(const int size, const std::vector<double>& v1, const std::vector<double>& v2, std::vector<double>& v3)
+long long vector_add(const int size, const std::vector<double>& v1, const std::vector<double>& v2, std::vector<double>& v3)
 {
 	//start clock for serial version
 	the_serial_clock::time_point start = the_serial_clock::now();
@@ -103,10 +117,12 @@ void vector_add(const int size, const std::vector<double>& v1, const std::vector
 	//Compute the difference between the two times in milliseconds
 	auto time_taken = duration_cast<milliseconds>(end - start).count();
 	cout << "Adding the vectors serially using the CPU took: " << time_taken << " ms." << endl;
+
+	return time_taken;
 } // vector_add
 
 // Accelerated  element-wise addition of arbitrary length vectors using C++ 11 container vector class
-void vector_add_amp(const int size, const std::vector<double>& v1, const std::vector<double>& v2, std::vector<double>& v3)
+long long vector_add_amp(const int size, const std::vector<double>& v1, const std::vector<double>& v2, std::vector<double>& v3, bool warmup)
 {
 	concurrency::array_view<const double> av1(size, v1);
 	concurrency::array_view<const double> av2(size, v2);
@@ -134,11 +150,18 @@ void vector_add_amp(const int size, const std::vector<double>& v1, const std::ve
 	// Compute the difference between the two times in milliseconds
 	auto time_taken = duration_cast<milliseconds>(end - start).count();
 	cout << "Adding the vectors using AMP (data transfer and compute) took: " << time_taken << " ms." << endl;
+
+	if (warmup)
+	{
+		av3.get_source_accelerator_view().wait();
+	}
+	
+	return time_taken;
 } // vector_add_amp
 
 
 template <typename T>
-void array_add(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& arr2, std::array<T, SIZE>& arr3)
+long long array_add(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& arr2, std::array<T, SIZE>& arr3)
 {
 	//start clock for serial version
 	the_serial_clock::time_point start = the_serial_clock::now();
@@ -151,12 +174,14 @@ void array_add(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& arr2,
 	the_serial_clock::time_point end = the_serial_clock::now();
 	//Compute the difference between the two times in milliseconds
 	auto time_taken = duration_cast<milliseconds>(end - start).count();
-	cout << "Adding the vectors serially using the CPU took: " << time_taken << " ms." << endl;
+	cout << "Adding the arrays serially using the CPU took: " << time_taken << " ms." << endl;
+
+	return time_taken;
 } // vector_add
 
  // Accelerated  element-wise addition of arbitrary length vectors using C++ 11 container vector class
 template <typename T>
-void array_add_amp(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& arr2, std::array<T, SIZE>& arr3)
+long long array_add_amp(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& arr2, std::array<T, SIZE>& arr3, bool warmup)
 {
 	concurrency::array_view<const T> av1(arr1.size(), arr1);
 	concurrency::array_view<const T> av2(arr2.size(), arr2);
@@ -183,33 +208,90 @@ void array_add_amp(const std::array<T, SIZE>& arr1, const std::array<T, SIZE>& a
 	the_amp_clock::time_point end = the_amp_clock::now();
 	// Compute the difference between the two times in milliseconds
 	auto time_taken = duration_cast<milliseconds>(end - start).count();
-	cout << "Adding the vectors using AMP (data transfer and compute) took: " << time_taken << " ms." << endl;
+	cout << "Adding the arrays using AMP (data transfer and compute) took: " << time_taken << " ms." << endl;
+
+	if (warmup)
+	{
+		av3.get_source_accelerator_view().wait();
+	}
+
+	return time_taken;
+
 } // vector_add_amp
 
+
+void vectorWarmUp()
+{
+	vector_add_amp(SIZE, v1, v2, v3, true);
+}
+
+void arrayWarmUp()
+{
+	array_add_amp(arr1, arr2, arr3, true);
+}
 
 
 int main(int argc, char* argv[])
 {
 	// Check AMP support
-	query_AMP_support();
+	//query_AMP_support();
 
-	//fill the arrays - try ints versus floats & double -- change via templating
-	/*std::vector<double> v1(SIZE, 1.0);
-	std::vector<double> v2(SIZE, 2.0);
-	std::vector<double> v3(SIZE, 0.0);*/
+	///////////////////////////// IMPORTANT INFO RELATED TO THE WARM UP CALLS BELOW /////////////////////////////
 
+	/*
+	 * Run these to cache the AMP runtime initialisation.
+	 * This way the first timing using the GPU is not significantly slower than the rest.
+	 * Otherwise the slower first time is caused by C++ AMP using JIT (Just in Time) lazy initialisation.
+	 */
+	
+	
+	// ALWAYS RECORD TIMINGS AFTER THE AMP RUNTIME INTIALISATION HAS BEEN CACHED.
 
-	//compare a serial and parallel version of vector addtion
-	/*vector_add_amp(SIZE, v1, v2, v3);
-	vector_add(SIZE, v1, v2, v3);*/
+	/* 
+	 * Make sure that you have called acceleartor_view.wait() as the parallel_for_each is
+	 * an asynchronous call and so we need to make sure that ALL of the pervious uses during
+	 * warmup calls are finihsed. Otherwise we may end up including some of the warmups in the timings.
+	 */
 
-	static const std::array<double, SIZE> arr1 = { 1 };
-	static const std::array<double, SIZE> arr2 = { 2 };
-	static std::array<double, SIZE>  arr3 = { 0 };
+	 ///////////////////////////// IMPORTANT INFO RELATED TO THE WARM UP CALLS BELOW /////////////////////////////
 
-	array_add(arr1, arr2, arr3);
-	array_add_amp(arr1, arr2, arr3);
+	timings << "\nVECTOR CPU TIMINGS, ";
+	// Time adding vectors on the CPU.
+	for (int i = 0; i < 20; ++i)
+	{	
+		long long time = vector_add(SIZE, v1, v2, v3);	
+		timings << time << ", ";
+	}
 
+	vectorWarmUp();
+
+	timings << "\nVECTOR GPU TIMINGS, ";
+	// Time adding vectors on the GPU.
+	for (int i = 0; i < 20; ++i)
+	{
+		long long time = vector_add_amp(SIZE, v1, v2, v3, false);
+		timings << time << ", ";
+	}
+
+	timings << "\nARRAY CPU TIMINGS, ";
+	// Time adding arrays on the CPU.
+	for (int i = 0; i < 20; ++i)
+	{		
+		long long time = array_add(arr1, arr2, arr3);
+		timings << time << ", ";
+	}
+
+	arrayWarmUp();
+
+	timings << "\nARRAY GPU TIMINGS, ";
+	// Time adding arrays on the GPU.
+	for (int i = 0; i < 20; ++i)
+	{
+		long long time = array_add_amp(arr1, arr2, arr3, false);
+		timings << time << ", ";
+	}
+
+	
 	// THIS CODE IS DEADLY, EVEN UNCOMMENTING IT WILL SLOW DOWN PERFORMANCE OF COMPUTER.
 	/*const std::array<int, SIZE>* arr1 = new std::array<int, SIZE> { 1 };
 	const std::array<int, SIZE>* arr2 = new std::array<int, SIZE> { 2 };
