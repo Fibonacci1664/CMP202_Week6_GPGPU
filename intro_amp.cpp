@@ -2,6 +2,10 @@
 // Ruth Falconer  <r.falconer@abertay.ac.uk>
 // Adapted from C++ AMP book http://ampbook.codeplex.com/license.
 
+//https://docs.microsoft.com/en-us/cpp/parallel/amp/cpp-amp-cpp-accelerated-massive-parallelism?view=msvc-160
+
+//https://docs.microsoft.com/en-us/cpp/parallel/amp/reference/reference-cpp-amp?view=msvc-160
+
 /*************************To do in lab ************************************/
 //Change size of the vector/array
 //Compare Debug versus Release modes
@@ -20,7 +24,9 @@
 
 /* 
  * From the size alterations below we can see that for the GPU to perform better than
- * the GPU the size must be of >= 2^18.
+ * the GPU the size must be of >= 2^18. (DEBUG MODE)
+ * I still need to find at what SIZE the GPU outperforms the CPU (RELEASE MODE) but I can't
+ * as I keep getting an error if I try and use a SIZE 1<<25 or greater.
  */
 
 //#define SIZE 1<<25		// same as 2^25 = 33,554,432			GIVES ME THE ERROR OF DOOM!
@@ -55,42 +61,90 @@ typedef std::chrono::steady_clock the_amp_clock;
 
 std::ofstream timings ("timings.csv");
 
+//get all accelerators available to us and store in a vector so we can extract details
+std::vector<accelerator> accls = accelerator::get_all();
+
 void report_accelerator(const accelerator a)
 {
 	const std::wstring bs[2] = { L"false", L"true" };
+
 	std::wcout << ": " << a.description << " "
-		<< endl << "       device_path                       = " << a.device_path
-		<< endl << "       dedicated_memory                  = " << std::setprecision(4) << float(a.dedicated_memory) / (1024.0f * 1024.0f) << " Mb"
-		<< endl << "       has_display                       = " << bs[a.has_display]
-		<< endl << "       is_debug                          = " << bs[a.is_debug]
-		<< endl << "       is_emulated                       = " << bs[a.is_emulated]
-		<< endl << "       supports_double_precision         = " << bs[a.supports_double_precision]
-		<< endl << "       supports_limited_double_precision = " << bs[a.supports_limited_double_precision]
+		<< endl << "		device_path                       = " << a.device_path
+		<< endl << "		version = " << (a.version >> 16) << '.' << (a.version & 0xFFFF)
+		<< endl << "		dedicated_memory                  = " << std::setprecision(4) << float(a.dedicated_memory) / (1024.0f * 1024.0f) << " Mb"
+		<< endl << "		has_display                       = " << bs[a.has_display]
+		<< endl << "		supports debug                    = " << bs[a.is_debug]
+		<< endl << "		is_emulated                       = " << bs[a.is_emulated]
+		<< endl << "		supports_double_precision         = " << bs[a.supports_double_precision]
+		<< endl << "		supports_limited_double_precision = " << bs[a.supports_limited_double_precision]
 		<< endl;
 }
 // List and select the accelerator to use
 void list_accelerators()
 {
-	//get all accelerators available to us and store in a vector so we can extract details
-	std::vector<accelerator> accls = accelerator::get_all();
-
 	// iterates over all accelerators and print characteristics
 	for (int i = 0; i < accls.size(); i++)
 	{
 		accelerator a = accls[i];
 		report_accelerator(a);
-
 	}
+
+
+	//http://www.danielmoth.com/Blog/Running-C-AMP-Kernels-On-The-CPU.aspx
 
 	//Use default accelerator
 	accelerator a = accelerator(accelerator::default_accelerator);
-	std::wcout << " default acc = " << a.description << endl;
+	accelerator::set_default(a.device_path);
+	std::wcout << " Using default acc = " << a.description << endl;
+
+	//https://docs.microsoft.com/en-gb/windows/win32/direct3darticles/directx-warp?redirectedfrom=MSDN
+
+	/*
+	Recommended Application Types for WARP
+	All applications that can use Direct3D can use WARP. This includes the following types of applications:
+
+	Casual Games
+	Existing Non-Gaming Applications
+	Advanced Rendering Games
+	Other Applications
+	*/
+
+	//Use Direct 3D WARP accelerator, this is an emulator, it is software on the CPU that emulates GPU hardware * This does not support double precision *
+	/*accelerator a = accelerator(accelerator::direct3d_warp);
+	accelerator::set_default(a.device_path);
+	std::wcout << " Using Direct3D WARP acc = " << a.description << endl;*/
+
+	//http://www.danielmoth.com/Blog/concurrencyaccelerator.aspx
+
+	//Use Direct 3D REF accelerator, this is an emulator, it is software on the CPU that emulates GPU hardware* This is extremely slow and is only intended for debugging *
+	/*
+	represents the reference rasterizer emulator that simulates a direct3d device on the CPU (in a very slow manner).
+	This emulator is available on systems with Visual Studio installed and is useful for debugging
+	*/
+	/*accelerator a = accelerator(accelerator::direct3d_ref);
+	accelerator::set_default(a.device_path);
+	std::wcout << " Using Direct3D REF acc = " << a.description << endl;*/
+
+	/*
+	Some great info here about different accelerators:
+	//https://www.microsoftpressstore.com/articles/article.aspx?p=2201645
+	*/
+
+	//Use CPU accelerator - Does NOT support Debug mode.
+	/*
+	You cannot execute code on the CPU accelerator.
+	ref: //https://docs.microsoft.com/en-us/cpp/parallel/amp/using-accelerator-and-accelerator-view-objects?view=msvc-160
+	*/
+	/*accelerator a = accelerator(accelerator::cpu_accelerator);
+	accelerator::set_default(a.device_path);
+	std::wcout << " Using CPU acc = " << a.description << endl;*/
 } // list_accelerators
 
 // query if AMP accelerator exists on hardware
 void query_AMP_support()
 {
 	std::vector<accelerator> accls = accelerator::get_all();
+
 	if (accls.empty())
 	{
 		cout << "No accelerators found that are compatible with C++ AMP" << std::endl;
@@ -234,7 +288,7 @@ void arrayWarmUp()
 int main(int argc, char* argv[])
 {
 	// Check AMP support
-	//query_AMP_support();
+	query_AMP_support();
 
 	///////////////////////////// IMPORTANT INFO RELATED TO THE WARM UP CALLS BELOW /////////////////////////////
 
@@ -257,7 +311,7 @@ int main(int argc, char* argv[])
 
 	timings << "\nVECTOR CPU TIMINGS, ";
 	// Time adding vectors on the CPU.
-	for (int i = 0; i < 20; ++i)
+	for (int i = 0; i < 5; ++i)
 	{	
 		long long time = vector_add(SIZE, v1, v2, v3);	
 		timings << time << ", ";
@@ -267,7 +321,7 @@ int main(int argc, char* argv[])
 
 	timings << "\nVECTOR GPU TIMINGS, ";
 	// Time adding vectors on the GPU.
-	for (int i = 0; i < 20; ++i)
+	for (int i = 0; i < 5; ++i)
 	{
 		long long time = vector_add_amp(SIZE, v1, v2, v3, false);
 		timings << time << ", ";
@@ -275,7 +329,7 @@ int main(int argc, char* argv[])
 
 	timings << "\nARRAY CPU TIMINGS, ";
 	// Time adding arrays on the CPU.
-	for (int i = 0; i < 20; ++i)
+	for (int i = 0; i < 5; ++i)
 	{		
 		long long time = array_add(arr1, arr2, arr3);
 		timings << time << ", ";
@@ -285,7 +339,7 @@ int main(int argc, char* argv[])
 
 	timings << "\nARRAY GPU TIMINGS, ";
 	// Time adding arrays on the GPU.
-	for (int i = 0; i < 20; ++i)
+	for (int i = 0; i < 5; ++i)
 	{
 		long long time = array_add_amp(arr1, arr2, arr3, false);
 		timings << time << ", ";
